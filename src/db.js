@@ -142,7 +142,20 @@ function normQuery(q) {
     .replace(/[*#\s-]/g, '');
 }
 
-async function search({ q, service, period, page = 1, pageSize = 50 }) {
+/* Whitelisted sortable columns (UI key -> DB column). */
+const SORTABLE = {
+  tracking: 'tracking_number',
+  customer: 'customer_code',
+  country: 'country',
+  invoice: 'invoice_norm',
+  shipdate: 'ship_date',
+  payment: 'payment_type',
+  duties: 'duties_taxes',
+};
+
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+async function search({ q, service, period, country, dateFrom, dateTo, sort, dir, page = 1, pageSize = 50 }) {
   const qn = normQuery(q);
   const qr = String(q || '').trim();
   const whereParts = [];
@@ -165,6 +178,18 @@ async function search({ q, service, period, page = 1, pageSize = 50 }) {
     whereParams.push(period);
     whereParts.push(`report_start = $${whereParams.length}`);
   }
+  if (country) {
+    whereParams.push(country);
+    whereParts.push(`country = $${whereParams.length}`);
+  }
+  if (dateFrom && DATE_RE.test(dateFrom)) {
+    whereParams.push(dateFrom);
+    whereParts.push(`ship_date >= $${whereParams.length}::date`);
+  }
+  if (dateTo && DATE_RE.test(dateTo)) {
+    whereParams.push(dateTo);
+    whereParts.push(`ship_date < ($${whereParams.length}::date + interval '1 day')`);
+  }
   const whereSql = whereParts.length ? `WHERE ${whereParts.join(' AND ')}` : '';
   const countRes = await pool.query(
     `SELECT COUNT(*)::int AS total FROM shipments ${whereSql}`,
@@ -174,9 +199,25 @@ async function search({ q, service, period, page = 1, pageSize = 50 }) {
   const safePage = Math.max(1, parseInt(page, 10) || 1);
   const safeSize = Math.min(200, Math.max(1, parseInt(pageSize, 10) || 50));
   const offset = (safePage - 1) * safeSize;
-  // List query puts qn at $1 for the relevance ORDER BY; shift where params by 1.
-  const listWhere = whereSql.replace(/\$(\d+)/g, (_m, n) => `$${parseInt(n, 10) + 1}`);
-  const listParams = [qn, ...whereParams, safeSize, offset];
+  const sortCol = SORTABLE[sort];
+  let listWhere, listParams, orderBy;
+  if (sortCol) {
+    // Explicit sort: the relevance parameter is not needed.
+    listWhere = whereSql;
+    listParams = [...whereParams, safeSize, offset];
+    orderBy = `${sortCol} ${dir === 'desc' ? 'DESC' : 'ASC'} NULLS LAST, imported_at DESC`;
+  } else {
+    // Default relevance order; qn goes in as $1 so shift where params by 1.
+    listWhere = whereSql.replace(/\$(\d+)/g, (_m, n) => `$${parseInt(n, 10) + 1}`);
+    listParams = [qn, ...whereParams, safeSize, offset];
+    orderBy = `CASE
+         WHEN $1 <> '' AND tracking_number = $1 THEN 0
+         WHEN $1 <> '' AND invoice_norm = $1 THEN 1
+         WHEN $1 <> '' AND customer_code ILIKE $1 || '%' THEN 2
+         ELSE 3
+       END,
+       imported_at DESC`;
+  }
   const listRes = await pool.query(
     `SELECT id, tracking_number, customer_code, contact_name, company_name,
        city, state, country, service_type, packages, weight_lbs,
@@ -185,14 +226,7 @@ async function search({ q, service, period, page = 1, pageSize = 50 }) {
        report_start, report_end,
        to_char(ship_date, 'YYYY-MM-DD HH24:MI') AS ship_date
      FROM shipments ${listWhere}
-     ORDER BY
-       CASE
-         WHEN $1 <> '' AND tracking_number = $1 THEN 0
-         WHEN $1 <> '' AND invoice_norm = $1 THEN 1
-         WHEN $1 <> '' AND customer_code ILIKE $1 || '%' THEN 2
-         ELSE 3
-       END,
-       imported_at DESC
+     ORDER BY ${orderBy}
      LIMIT $${listParams.length - 1} OFFSET $${listParams.length}`,
     listParams,
   );
@@ -225,6 +259,13 @@ async function listPeriods() {
   return res.rows;
 }
 
+async function listCountries() {
+  const res = await pool.query(
+    `SELECT DISTINCT country FROM shipments WHERE country <> '' ORDER BY country`,
+  );
+  return res.rows.map((r) => r.country);
+}
+
 async function stats() {
   const res = await pool.query(
     'SELECT COUNT(*)::int AS shipments FROM shipments',
@@ -240,6 +281,7 @@ module.exports = {
   search,
   getById,
   listPeriods,
+  listCountries,
   stats,
   normQuery,
   COLUMNS,
