@@ -129,6 +129,7 @@ app.get('/api/search', async (req, res) => {
       sort: req.query.sort || '',
       dir: req.query.dir || '',
       type: req.query.type || '',
+      needsReview: req.query.needsReview || '',
       page: req.query.page || 1,
       pageSize: req.query.pageSize || 50,
     });
