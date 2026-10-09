@@ -74,6 +74,8 @@
   .date-sep { color:var(--faint); }
   .btn-ghost { background:#fff; border:1px solid #d1d5db; border-radius:8px; padding:10px 16px; font-size:13px; font-weight:600; color:var(--muted); cursor:pointer; }
   .btn-ghost:hover { border-color:var(--accent); color:var(--accent); }
+  .btn-chip { background:#eef2f7; border:1px solid transparent; border-radius:20px; padding:8px 15px; font-size:13px; font-weight:600; color:#3b4a63; cursor:pointer; }
+  .btn-chip:hover { border-color:var(--accent); color:var(--accent); }
   th[data-sort] { cursor:pointer; user-select:none; }
   th[data-sort]:hover { color:var(--ink); }
   .si { font-size:9px; margin-left:4px; color:var(--accent); }
@@ -110,6 +112,8 @@
       </label>
       <span class="date-sep">→</span>
       <input type="date" id="dateTo" aria-label="Ship date to">
+      <button id="quickToday" class="btn-chip" type="button">Today</button>
+      <button id="quickWeek" class="btn-chip" type="button">This week</button>
       <button id="clearFilters" class="btn-ghost" type="button">Clear filters</button>
     </div>
     <div class="hint">Tip: paste a tracking number, a customer code like <span class="mono">S0124295</span>, a company name, or an invoice number with or without the <span class="mono">B/C</span> prefix. Click a column header to sort — click again to reverse.</div>
@@ -313,6 +317,26 @@ $('period').addEventListener('change', e => { state.period = e.target.value; sta
 $('country').addEventListener('change', e => { state.country = e.target.value; state.page = 1; doSearch(); });
 $('dateFrom').addEventListener('change', e => { state.dateFrom = e.target.value; state.page = 1; doSearch(); });
 $('dateTo').addEventListener('change', e => { state.dateTo = e.target.value; state.page = 1; doSearch(); });
+function fmtDate(d) {
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+function setDateRange(from, to) {
+  state.dateFrom = from; state.dateTo = to;
+  $('dateFrom').value = from; $('dateTo').value = to;
+  state.page = 1; doSearch();
+}
+$('quickToday').addEventListener('click', () => {
+  const t = fmtDate(new Date());
+  setDateRange(t, t);
+});
+$('quickWeek').addEventListener('click', () => {
+  const now = new Date();
+  const monday = new Date(now);
+  monday.setDate(now.getDate() - ((now.getDay() + 6) % 7)); // back to Monday
+  const sunday = new Date(monday);
+  sunday.setDate(monday.getDate() + 6);
+  setDateRange(fmtDate(monday), fmtDate(sunday));
+});
 $('clearFilters').addEventListener('click', () => {
   Object.assign(state, { q:'', service:'', period:'', country:'', dateFrom:'', dateTo:'', sort:'', dir:'', page:1 });
   $('q').value = ''; $('service').value = ''; $('period').value = '';
