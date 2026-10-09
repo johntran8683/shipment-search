@@ -155,7 +155,12 @@ const SORTABLE = {
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
-async function search({ q, service, period, country, dateFrom, dateTo, sort, dir, type, page = 1, pageSize = 50 }) {
+/* International = known country outside US & Canada. */
+const INTERNATIONAL_SQL = `country <> '' AND country NOT IN ('Canada', 'United States')`;
+/* Wrongly created: international but duties not billed to the recipient. */
+const NEEDS_REVIEW_SQL = `${INTERNATIONAL_SQL} AND COALESCE(duties_taxes, '') <> 'Recipient'`;
+
+async function search({ q, service, period, country, dateFrom, dateTo, sort, dir, type, needsReview, page = 1, pageSize = 50 }) {
   const qn = normQuery(q);
   const qr = String(q || '').trim();
   const whereParts = [];
@@ -185,7 +190,10 @@ async function search({ q, service, period, country, dateFrom, dateTo, sort, dir
   if (type === 'domestic') {
     whereParts.push(`country IN ('Canada', 'United States')`);
   } else if (type === 'international') {
-    whereParts.push(`country <> '' AND country NOT IN ('Canada', 'United States')`);
+    whereParts.push(INTERNATIONAL_SQL);
+  }
+  if (needsReview === '1' || needsReview === true) {
+    whereParts.push(NEEDS_REVIEW_SQL);
   }
   if (dateFrom && DATE_RE.test(dateFrom)) {
     whereParams.push(dateFrom);
@@ -273,7 +281,9 @@ async function listCountries() {
 
 async function stats() {
   const res = await pool.query(
-    'SELECT COUNT(*)::int AS shipments FROM shipments',
+    `SELECT COUNT(*)::int AS shipments,
+       (COUNT(*) FILTER (WHERE ${NEEDS_REVIEW_SQL}))::int AS "needsReview"
+     FROM shipments`,
   );
   return res.rows[0];
 }
