@@ -102,6 +102,11 @@
   <div class="card">
     <div class="search-row">
       <input id="q" type="search" placeholder="Tracking #, customer, country, invoice #…" autocomplete="off">
+      <select id="shipmentType" title="Domestic = US & Canada">
+        <option value="">All shipments</option>
+        <option value="domestic">Domestic (US &amp; Canada)</option>
+        <option value="international">International</option>
+      </select>
       <select id="service"><option value="">All services</option></select>
       <select id="period"><option value="">All report periods</option></select>
       <select id="country"><option value="">All countries</option></select>
@@ -170,7 +175,7 @@
 
 <script>
 const $ = id => document.getElementById(id);
-const state = { q:'', service:'', period:'', country:'', dateFrom:'', dateTo:'', sort:'', dir:'', page:1, total:0, pageSize:50 };
+const state = { q:'', service:'', period:'', country:'', dateFrom:'', dateTo:'', sort:'', dir:'', type:'', page:1, total:0, pageSize:50 };
 let searchTimer = null;
 
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -259,6 +264,7 @@ async function doSearch() {
   const params = new URLSearchParams({
     q: state.q, service: state.service, period: state.period, country: state.country,
     dateFrom: state.dateFrom, dateTo: state.dateTo, sort: state.sort, dir: state.dir,
+    type: state.type,
     page: state.page, pageSize: state.pageSize,
   });
   let res;
@@ -315,6 +321,7 @@ $('q').addEventListener('input', e => { state.q = e.target.value; scheduleSearch
 $('service').addEventListener('change', e => { state.service = e.target.value; state.page = 1; doSearch(); });
 $('period').addEventListener('change', e => { state.period = e.target.value; state.page = 1; doSearch(); });
 $('country').addEventListener('change', e => { state.country = e.target.value; state.page = 1; doSearch(); });
+$('shipmentType').addEventListener('change', e => { state.type = e.target.value; state.page = 1; doSearch(); });
 $('dateFrom').addEventListener('change', e => { state.dateFrom = e.target.value; state.page = 1; doSearch(); });
 $('dateTo').addEventListener('change', e => { state.dateTo = e.target.value; state.page = 1; doSearch(); });
 function fmtDate(d) {
@@ -338,9 +345,10 @@ $('quickWeek').addEventListener('click', () => {
   setDateRange(fmtDate(monday), fmtDate(sunday));
 });
 $('clearFilters').addEventListener('click', () => {
-  Object.assign(state, { q:'', service:'', period:'', country:'', dateFrom:'', dateTo:'', sort:'', dir:'', page:1 });
+  Object.assign(state, { q:'', service:'', period:'', country:'', dateFrom:'', dateTo:'', sort:'', dir:'', type:'', page:1 });
   $('q').value = ''; $('service').value = ''; $('period').value = '';
   $('country').value = ''; $('dateFrom').value = ''; $('dateTo').value = '';
+  $('shipmentType').value = '';
   doSearch();
 });
 document.querySelectorAll('th[data-sort]').forEach(th => {
