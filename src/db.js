@@ -155,7 +155,7 @@ const SORTABLE = {
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
-async function search({ q, service, period, country, dateFrom, dateTo, sort, dir, page = 1, pageSize = 50 }) {
+async function search({ q, service, period, country, dateFrom, dateTo, sort, dir, type, page = 1, pageSize = 50 }) {
   const qn = normQuery(q);
   const qr = String(q || '').trim();
   const whereParts = [];
@@ -181,6 +181,11 @@ async function search({ q, service, period, country, dateFrom, dateTo, sort, dir
   if (country) {
     whereParams.push(country);
     whereParts.push(`country = $${whereParams.length}`);
+  }
+  if (type === 'domestic') {
+    whereParts.push(`country IN ('Canada', 'United States')`);
+  } else if (type === 'international') {
+    whereParts.push(`country <> '' AND country NOT IN ('Canada', 'United States')`);
   }
   if (dateFrom && DATE_RE.test(dateFrom)) {
     whereParams.push(dateFrom);
