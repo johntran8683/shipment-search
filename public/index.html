@@ -69,6 +69,14 @@
   .btn:hover:not(:disabled) { background:var(--accent-hover); }
   .btn:disabled { opacity:.5; cursor:default; }
   input[type=file] { font-size:13px; color:var(--muted); }
+  input[type=date] { font-size:14px; padding:10px; border:1px solid #d1d5db; border-radius:8px; background:#fff; color:var(--ink); }
+  .date-label { display:flex; align-items:center; gap:8px; font-size:13px; color:var(--muted); font-weight:600; }
+  .date-sep { color:var(--faint); }
+  .btn-ghost { background:#fff; border:1px solid #d1d5db; border-radius:8px; padding:10px 16px; font-size:13px; font-weight:600; color:var(--muted); cursor:pointer; }
+  .btn-ghost:hover { border-color:var(--accent); color:var(--accent); }
+  th[data-sort] { cursor:pointer; user-select:none; }
+  th[data-sort]:hover { color:var(--ink); }
+  .si { font-size:9px; margin-left:4px; color:var(--accent); }
   #importMsg, #importLogMsg { font-size:13px; margin-top:8px; white-space:pre-wrap; line-height:1.6; }
   .ok { color:#15803d; } .err { color:#b91c1c; }
   @media (max-width:900px){
@@ -90,8 +98,17 @@
       <input id="q" type="search" placeholder="Tracking #, customer, country, invoice #…" autocomplete="off">
       <select id="service"><option value="">All services</option></select>
       <select id="period"><option value="">All report periods</option></select>
+      <select id="country"><option value="">All countries</option></select>
     </div>
-    <div class="hint">Tip: paste a tracking number, a customer code like <span class="mono">S0124295</span>, a company name, or an invoice number with or without the <span class="mono">B/C</span> prefix. Click any row for the full detail.</div>
+    <div class="search-row" style="margin-top:10px; align-items:center;">
+      <label class="date-label">Ship date
+        <input type="date" id="dateFrom" aria-label="Ship date from">
+      </label>
+      <span class="date-sep">→</span>
+      <input type="date" id="dateTo" aria-label="Ship date to">
+      <button id="clearFilters" class="btn-ghost" type="button">Clear filters</button>
+    </div>
+    <div class="hint">Tip: paste a tracking number, a customer code like <span class="mono">S0124295</span>, a company name, or an invoice number with or without the <span class="mono">B/C</span> prefix. Click a column header to sort — click again to reverse.</div>
   </div>
 
   <div class="card">
@@ -99,7 +116,7 @@
     <div class="table-wrap">
     <table>
       <thead><tr>
-        <th>Tracking #</th><th>Customer</th><th>Country</th><th>Invoice #</th><th>Ship date</th><th>Payment</th><th>Duties &amp; taxes</th>
+        <th data-sort="tracking">Tracking #<span class="si"></span></th><th data-sort="customer">Customer<span class="si"></span></th><th data-sort="country">Country<span class="si"></span></th><th data-sort="invoice">Invoice #<span class="si"></span></th><th data-sort="shipdate">Ship date<span class="si"></span></th><th data-sort="payment">Payment<span class="si"></span></th><th data-sort="duties">Duties &amp; taxes<span class="si"></span></th>
       </tr></thead>
       <tbody id="rows"></tbody>
     </table>
@@ -145,7 +162,7 @@
 
 <script>
 const $ = id => document.getElementById(id);
-const state = { q:'', service:'', period:'', page:1, total:0, pageSize:50 };
+const state = { q:'', service:'', period:'', country:'', dateFrom:'', dateTo:'', sort:'', dir:'', page:1, total:0, pageSize:50 };
 let searchTimer = null;
 
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -170,6 +187,21 @@ async function api(url, opts) {
   return j;
 }
 
+function fillSelect(sel, items, textFn, valueFn) {
+  const cur = sel.value;
+  const first = sel.options[0];
+  sel.innerHTML = '';
+  sel.appendChild(first);
+  items.forEach(it => {
+    const o = document.createElement('option');
+    o.value = valueFn(it);
+    o.textContent = textFn(it);
+    sel.appendChild(o);
+  });
+  if ([...sel.options].some(o => o.value === cur && cur !== '')) sel.value = cur;
+  else first.selected = true;
+}
+
 async function loadMeta() {
   try {
     const s = await api('/api/stats');
@@ -177,23 +209,21 @@ async function loadMeta() {
   } catch(e) { $('stats').textContent = ''; }
   try {
     const periods = await api('/api/periods');
-    const wsel = $('period');
-    periods.forEach(w => {
-      const o = document.createElement('option');
-      o.value = w.report_start.slice(0,10);
-      o.textContent = `${w.report_start.slice(0,10)} → ${w.report_end.slice(0,10)} (${w.shipments.toLocaleString()})`;
-      wsel.appendChild(o);
-    });
-    ['FedEx International Economy','FedEx International Priority','FedEx Ground Service'].forEach(s => {
-      const o = document.createElement('option'); o.value = s; o.textContent = s.replace('FedEx ','');
-      $('service').appendChild(o);
-    });
+    fillSelect($('period'), periods,
+      w => `${w.report_start.slice(0,10)} → ${w.report_end.slice(0,10)} (${w.shipments.toLocaleString()})`,
+      w => w.report_start.slice(0,10));
+    const countries = await api('/api/countries');
+    fillSelect($('country'), countries, c => c, c => c);
+    fillSelect($('service'),
+      ['FedEx International Economy','FedEx International Priority','FedEx Ground Service'],
+      s => s.replace('FedEx ', ''), s => s);
   } catch(e) {}
 }
 
 async function doSearch() {
   const params = new URLSearchParams({
-    q: state.q, service: state.service, period: state.period,
+    q: state.q, service: state.service, period: state.period, country: state.country,
+    dateFrom: state.dateFrom, dateTo: state.dateTo, sort: state.sort, dir: state.dir,
     page: state.page, pageSize: state.pageSize,
   });
   let res;
@@ -222,6 +252,14 @@ async function doSearch() {
   $('pageInfo').textContent = 'Page ' + res.page + ' of ' + pages.toLocaleString();
   $('prev').disabled = res.page <= 1;
   $('next').disabled = res.page >= pages;
+  updateSortIndicators();
+}
+
+function updateSortIndicators() {
+  document.querySelectorAll('th[data-sort]').forEach(th => {
+    const ind = th.querySelector('.si');
+    ind.textContent = th.dataset.sort === state.sort ? (state.dir === 'desc' ? ' ▼' : ' ▲') : '';
+  });
 }
 
 function scheduleSearch() {
@@ -241,6 +279,24 @@ const dash = v => v == null || v === '' ? '—' : esc(v);
 $('q').addEventListener('input', e => { state.q = e.target.value; scheduleSearch(); });
 $('service').addEventListener('change', e => { state.service = e.target.value; state.page = 1; doSearch(); });
 $('period').addEventListener('change', e => { state.period = e.target.value; state.page = 1; doSearch(); });
+$('country').addEventListener('change', e => { state.country = e.target.value; state.page = 1; doSearch(); });
+$('dateFrom').addEventListener('change', e => { state.dateFrom = e.target.value; state.page = 1; doSearch(); });
+$('dateTo').addEventListener('change', e => { state.dateTo = e.target.value; state.page = 1; doSearch(); });
+$('clearFilters').addEventListener('click', () => {
+  Object.assign(state, { q:'', service:'', period:'', country:'', dateFrom:'', dateTo:'', sort:'', dir:'', page:1 });
+  $('q').value = ''; $('service').value = ''; $('period').value = '';
+  $('country').value = ''; $('dateFrom').value = ''; $('dateTo').value = '';
+  doSearch();
+});
+document.querySelectorAll('th[data-sort]').forEach(th => {
+  th.addEventListener('click', () => {
+    const key = th.dataset.sort;
+    if (state.sort !== key) { state.sort = key; state.dir = 'asc'; }
+    else if (state.dir === 'asc') { state.dir = 'desc'; }
+    else { state.sort = ''; state.dir = ''; }
+    state.page = 1; doSearch();
+  });
+});
 $('prev').addEventListener('click', () => { if (state.page > 1) { state.page--; doSearch(); } });
 $('next').addEventListener('click', () => { if (state.page < Math.ceil(state.total / state.pageSize)) { state.page++; doSearch(); } });
 
