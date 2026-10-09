@@ -77,7 +77,15 @@
   .btn-chip { background:#eef2f7; border:1px solid transparent; border-radius:20px; padding:8px 15px; font-size:13px; font-weight:600; color:#3b4a63; cursor:pointer; }
   .btn-chip:hover { border-color:var(--accent); color:var(--accent); }
   .warn-chip.active { background:var(--warn-bg); border-color:#e8a13d; color:var(--warn-ink); }
-  .warn-flag { color:#c77e0a; font-size:13px; margin-right:2px; }
+  .warn-chip.alert { background:#fdecec; border:1px solid #f0a0a0; color:#b91c1c; font-weight:700; }
+  .warn-chip.alert:hover { border-color:#b91c1c; color:#b91c1c; }
+  .warn-chip.alert.active { background:#fbd9d9; box-shadow:0 0 0 2px rgba(185,28,28,.25); }
+  .warn-chip.ok { background:#e9f7ef; color:#15803d; cursor:default; }
+  .warn-chip.ok:hover { border-color:transparent; color:#15803d; }
+  .warn-chip:disabled { opacity:.9; }
+  .warn-flag { color:#b45309; font-size:14px; font-weight:700; margin-right:4px; }
+  tbody tr.review td { background:#fdf3e3; }
+  tbody tr.review:hover td { background:#fae9cf; }
   th[data-sort] { cursor:pointer; user-select:none; }
   th[data-sort]:hover { color:var(--ink); }
   .si { font-size:9px; margin-left:4px; color:var(--accent); }
@@ -114,7 +122,7 @@
       <select id="country"><option value="">All countries</option></select>
     </div>
     <div class="search-row" style="margin-top:10px; align-items:center;">
-      <button id="needsReview" class="btn-chip warn-chip" type="button" title="International shipments where Duties &amp; taxes is not Recipient">⚠ Needs review <span id="needsReviewCount"></span></button>
+      <button id="needsReview" class="btn-chip warn-chip" type="button" title="International shipments where Duties &amp; taxes is not Recipient"><span id="needsReviewLabel">⚠ Needs review</span> <span id="needsReviewCount"></span></button>
       <label class="date-label">Ship date
         <input type="date" id="dateFrom" aria-label="Ship date from">
       </label>
@@ -261,8 +269,19 @@ async function loadMeta() {
     const s = await api('/api/stats');
     $('stats').textContent = s.shipments.toLocaleString() + ' shipments stored';
     const n = s.needsReview || 0;
-    $('needsReviewCount').textContent = n > 0 ? `(${n})` : '';
-    $('needsReview').style.display = n > 0 ? '' : 'none';
+    const chip = $('needsReview');
+    if (n > 0) {
+      $('needsReviewLabel').textContent = '⚠ Needs review';
+      $('needsReviewCount').textContent = `(${n})`;
+      chip.classList.add('alert'); chip.classList.remove('ok');
+      chip.disabled = false;
+    } else {
+      $('needsReviewLabel').textContent = '✓ Duties OK';
+      $('needsReviewCount').textContent = '';
+      chip.classList.add('ok'); chip.classList.remove('alert', 'active');
+      chip.disabled = true;
+      if (state.needsReview) { state.needsReview = false; state.page = 1; doSearch(); }
+    }
   } catch(e) { $('stats').textContent = ''; }
   try {
     const periods = await api('/api/periods');
@@ -294,6 +313,7 @@ async function doSearch() {
   for (const r of res.rows) {
     const tr = document.createElement('tr');
     tr.dataset.id = r.id;
+    if (needsReviewRow(r)) tr.classList.add('review');
     const cust = '<span class="strong">' + esc(r.customer_code || '—') + '</span>' +
       (r.company_name ? '<div class="sub2">' + esc(r.company_name) + '</div>' : '');
     tr.innerHTML =
