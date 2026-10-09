@@ -42,6 +42,14 @@ app.get('/api/periods', async (_req, res) => {
   }
 });
 
+app.get('/api/countries', async (_req, res) => {
+  try {
+    res.json(await db.listCountries());
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 /* Import one or more report .txt files. Deduplicates by tracking number,
    skips B/Ctest rows (handled by the parser). */
 app.post('/api/import', upload.array('files', 200), async (req, res) => {
@@ -115,6 +123,11 @@ app.get('/api/search', async (req, res) => {
       q: req.query.q || '',
       service: req.query.service || '',
       period: req.query.period || '',
+      country: req.query.country || '',
+      dateFrom: req.query.dateFrom || '',
+      dateTo: req.query.dateTo || '',
+      sort: req.query.sort || '',
+      dir: req.query.dir || '',
       page: req.query.page || 1,
       pageSize: req.query.pageSize || 50,
     });
