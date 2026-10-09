@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Shipment Search</title>
+<style>
+  :root { --fedex-purple:#4d148c; --fedex-orange:#ff6200; }
+  * { box-sizing:border-box; }
+  body { font-family:-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; margin:0; color:#1a1a1a; background:#f4f4f6; }
+  header { background:var(--fedex-purple); color:#fff; padding:14px 24px; display:flex; align-items:center; gap:16px; }
+  header h1 { font-size:20px; margin:0; font-weight:700; }
+  header h1 span { color:var(--fedex-orange); }
+  header .stats { margin-left:auto; font-size:13px; opacity:.85; }
+  main { max-width:1200px; margin:0 auto; padding:20px 24px 60px; }
+  .card { background:#fff; border-radius:10px; padding:18px 20px; box-shadow:0 1px 3px rgba(0,0,0,.08); margin-bottom:18px; }
+  .search-row { display:flex; gap:10px; flex-wrap:wrap; }
+  #q { flex:1; min-width:220px; font-size:16px; padding:10px 14px; border:2px solid #ddd; border-radius:8px; }
+  #q:focus { outline:none; border-color:var(--fedex-purple); }
+  select { font-size:14px; padding:10px; border:2px solid #ddd; border-radius:8px; background:#fff; }
+  .hint { font-size:12px; color:#666; margin-top:8px; }
+  table { width:100%; border-collapse:collapse; font-size:14px; }
+  th { text-align:left; padding:10px 8px; border-bottom:2px solid #eee; color:#555; font-weight:600; white-space:nowrap; }
+  td { padding:10px 8px; border-bottom:1px solid #f0f0f0; vertical-align:top; }
+  tr[data-id] { cursor:pointer; }
+  tr[data-id]:hover td { background:#f8f4ff; }
+  .mono { font-family:ui-monospace,Menlo,Consolas,monospace; font-size:13px; }
+  .pill { display:inline-block; font-size:11px; padding:2px 8px; border-radius:20px; background:#eef; color:#446; white-space:nowrap; }
+  .pill.priority { background:#fff3e0; color:#b26a00; }
+  .pager { display:flex; align-items:center; gap:12px; margin-top:12px; font-size:14px; }
+  .pager button { padding:8px 16px; border:1px solid #ddd; background:#fff; border-radius:6px; cursor:pointer; font-size:14px; }
+  .pager button:disabled { opacity:.4; cursor:default; }
+  #detail { position:fixed; inset:0; background:rgba(0,0,0,.45); display:none; align-items:center; justify-content:center; padding:20px; z-index:10; }
+  #detail.open { display:flex; }
+  #detailCard { background:#fff; border-radius:12px; max-width:640px; width:100%; max-height:88vh; overflow:auto; padding:24px 28px; }
+  #detailCard h2 { margin:0 0 4px; font-size:18px; }
+  #detailCard .close { float:right; border:none; background:#eee; border-radius:50%; width:32px; height:32px; font-size:16px; cursor:pointer; }
+  .kv { display:grid; grid-template-columns:170px 1fr; row-gap:7px; column-gap:12px; font-size:14px; margin-top:14px; }
+  .kv .k { color:#666; }
+  .import-row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+  .btn { background:var(--fedex-purple); color:#fff; border:none; border-radius:8px; padding:10px 20px; font-size:14px; cursor:pointer; font-weight:600; }
+  .btn:disabled { opacity:.5; cursor:default; }
+  #importMsg { font-size:14px; margin-top:10px; white-space:pre-wrap; }
+  .ok { color:#1a7f37; } .err { color:#c00; }
+  @media (max-width:700px){ .kv{grid-template-columns:130px 1fr;} th:nth-child(5),td:nth-child(5){display:none;} }
+</style>
+</head>
+<body>
+<header>
+  <h1>Shipment <span>Search</span></h1>
+  <div class="stats" id="stats"></div>
+</header>
+<main>
+  <div class="card">
+    <div class="search-row">
+      <input id="q" type="search" placeholder="Tracking #, customer code / name, or invoice #…" autocomplete="off">
+      <select id="service"><option value="">All services</option></select>
+      <select id="period"><option value="">All report periods</option></select>
+    </div>
+    <div class="hint">Tip: paste a tracking number, a customer code like <span class="mono">S0124295</span>, a company name, or an invoice number with or without the <span class="mono">B/C</span> prefix.</div>
+  </div>
+
+  <div class="card">
+    <div id="resultMeta" class="hint" style="margin:0 0 8px"></div>
+    <table>
+      <thead><tr>
+        <th>Tracking #</th><th>Customer</th><th>Invoice #</th><th>Service</th><th>Weight</th><th>Customs</th><th>Report period</th><th>Ship date</th>
+      </tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+    <div class="pager">
+      <button id="prev">← Prev</button>
+      <span id="pageInfo"></span>
+      <button id="next">Next →</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3 style="margin:0 0 10px">Import report</h3>
+    <div class="import-row">
+      <input type="file" id="files" accept=".txt" multiple>
+      <button class="btn" id="uploadBtn">Upload &amp; import</button>
+    </div>
+    <div id="importMsg"></div>
+    <div class="hint">Upload one or many <span class="mono">.txt</span> shipment reports whenever they arrive (daily, every few days, weekly…). Records are matched by tracking number — re-importing never duplicates. Rows with reference <span class="mono">B/Ctest</span> are skipped.</div>
+  </div>
+
+  <div class="card">
+    <h3 style="margin:0 0 10px">Import shipping log</h3>
+    <div class="import-row">
+      <input type="file" id="logFiles" accept=".txt" multiple>
+      <button class="btn" id="uploadLogBtn">Upload &amp; update dates</button>
+    </div>
+    <div id="importLogMsg"></div>
+    <div class="hint">Upload <span class="mono">.txt</span> Shipping Log files to fill in each shipment's ship date + time. Matched by tracking number — numbers not in the database are skipped.</div>
+  </div>
+</main>
+
+<div id="detail"><div id="detailCard">
+  <button class="close" id="detailClose">✕</button>
+  <h2>Shipment detail</h2>
+  <div class="kv" id="detailKv"></div>
+</div></div>
+
+<script>
+const $ = id => document.getElementById(id);
+const state = { q:'', service:'', period:'', page:1, total:0, pageSize:50 };
+let searchTimer = null;
+
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+async function api(url, opts) {
+  const r = await fetch(url, opts);
+  const j = await r.json();
+  if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status));
+  return j;
+}
+
+async function loadMeta() {
+  try {
+    const s = await api('/api/stats');
+    $('stats').textContent = s.shipments.toLocaleString() + ' shipments stored';
+  } catch(e) { $('stats').textContent = ''; }
+  try {
+    const periods = await api('/api/periods');
+    const wsel = $('period');
+    periods.forEach(w => {
+      const o = document.createElement('option');
+      o.value = w.report_start.slice(0,10);
+      o.textContent = `${w.report_start.slice(0,10)} → ${w.report_end.slice(0,10)} (${w.shipments.toLocaleString()})`;
+      wsel.appendChild(o);
+    });
+    ['FedEx International Economy','FedEx International Priority','FedEx Ground Service'].forEach(s => {
+      const o = document.createElement('option'); o.value = s; o.textContent = s.replace('FedEx ','');
+      $('service').appendChild(o);
+    });
+  } catch(e) {}
+}
+
+async function doSearch() {
+  const params = new URLSearchParams({
+    q: state.q, service: state.service, period: state.period,
+    page: state.page, pageSize: state.pageSize,
+  });
+  let res;
+  try { res = await api('/api/search?' + params); }
+  catch(e) { $('resultMeta').innerHTML = '<span class="err">Search failed: ' + esc(e.message) + '</span>'; return; }
+  state.total = res.total;
+  const tb = $('rows');
+  tb.innerHTML = '';
+  for (const r of res.rows) {
+    const tr = document.createElement('tr');
+    tr.dataset.id = r.id;
+    const cust = esc(r.customer_code) + (r.company_name ? '<br><span style="color:#555">' + esc(r.company_name) + '</span>' : '');
+    tr.innerHTML =
+      '<td class="mono">' + esc(r.tracking_number) + '</td>' +
+      '<td>' + cust + '</td>' +
+      '<td class="mono">' + esc(r.invoice_number || '—') + '</td>' +
+      '<td><span class="pill' + (r.service_type.includes('Priority') ? ' priority' : '') + '">' + esc(r.service_type.replace('FedEx ','').replace(' International','')) + '</span></td>' +
+      '<td>' + (r.weight_lbs != null ? r.weight_lbs + ' lb' : '—') + '</td>' +
+      '<td>' + (r.customs_value != null ? r.customs_currency + ' ' + Number(r.customs_value).toLocaleString() : '—') + '</td>' +
+      '<td class="mono">' + esc((r.report_start||'').slice(0,10)) + '</td>' +
+      '<td class="mono">' + esc(r.ship_date || '—') + '</td>';
+    tb.appendChild(tr);
+  }
+  const pages = Math.max(1, Math.ceil(res.total / res.pageSize));
+  $('resultMeta').textContent = res.total.toLocaleString() + ' result' + (res.total === 1 ? '' : 's');
+  $('pageInfo').textContent = 'Page ' + res.page + ' of ' + pages.toLocaleString();
+  $('prev').disabled = res.page <= 1;
+  $('next').disabled = res.page >= pages;
+}
+
+function scheduleSearch() {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(() => { state.page = 1; doSearch(); }, 280);
+}
+
+$('q').addEventListener('input', e => { state.q = e.target.value; scheduleSearch(); });
+$('service').addEventListener('change', e => { state.service = e.target.value; state.page = 1; doSearch(); });
+$('period').addEventListener('change', e => { state.period = e.target.value; state.page = 1; doSearch(); });
+$('prev').addEventListener('click', () => { if (state.page > 1) { state.page--; doSearch(); } });
+$('next').addEventListener('click', () => { state.page++; doSearch(); });
+
+$('rows').addEventListener('click', async e => {
+  const tr = e.target.closest('tr[data-id]');
+  if (!tr) return;
+  let d;
+  try { d = await api('/api/shipments/' + tr.dataset.id); }
+  catch(err) { return; }
+  const addr = [d.address_line1, d.address_line2].filter(Boolean).join(', ');
+  const city = [d.city, d.state].filter(Boolean).join(', ');
+  const rows = [
+    ['Tracking #', d.tracking_number],
+    ['Ship date', d.ship_date || '—'],
+    ['Customer code', d.customer_code || '—'],
+    ['Contact', d.contact_name || '—'],
+    ['Company', d.company_name || '—'],
+    ['Address', [addr, city, d.postal_code, d.country].filter(Boolean).join(', ') || '—'],
+    ['Service', d.service_type || '—'],
+    ['Packages', d.packages ?? '—'],
+    ['Weight', d.weight_lbs != null ? d.weight_lbs + ' lbs' : '—'],
+    ['Customs value', d.customs_value != null ? d.customs_currency + ' ' + Number(d.customs_value).toLocaleString() : '—'],
+    ['Duties & taxes', d.duties_taxes || '—'],
+    ['Payment', d.payment_type || '—'],
+    ['Invoice #', d.invoice_number || '—'],
+    ['Reference (raw)', d.raw_reference || '—'],
+    ['Description', d.description || '—'],
+    ['Report period', (d.report_start||'').slice(0,10) + ' → ' + (d.report_end||'').slice(0,10)],
+  ];
+  $('detailKv').innerHTML = rows.map(([k,v]) =>
+    '<div class="k">' + esc(k) + '</div><div>' + esc(v) + '</div>').join('');
+  $('detail').classList.add('open');
+});
+$('detailClose').addEventListener('click', () => $('detail').classList.remove('open'));
+$('detail').addEventListener('click', e => { if (e.target.id === 'detail') $('detail').classList.remove('open'); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') $('detail').classList.remove('open'); });
+
+$('uploadBtn').addEventListener('click', async () => {
+  const files = $('files').files;
+  if (!files.length) { $('importMsg').innerHTML = '<span class="err">Choose at least one .txt file first.</span>'; return; }
+  const fd = new FormData();
+  for (const f of files) fd.append('files', f);
+  $('uploadBtn').disabled = true;
+  $('importMsg').textContent = 'Importing ' + files.length + ' file(s)…';
+  try {
+    const s = await api('/api/import', { method: 'POST', body: fd });
+    const lines = s.files.map(f =>
+      `• ${f.name}: ${f.records} records (${f.inserted} new, ${f.updated} updated)` +
+      (f.reportStart ? ` [${f.reportStart} → ${f.reportEnd}]` : ''));
+    lines.push(`Total: ${s.totalRecords} records, ${s.inserted} new, ${s.updated} updated.`);
+    $('importMsg').innerHTML = '<span class="ok">' + esc(lines.join('\n')) + '</span>';
+    $('files').value = '';
+    loadMeta(); state.page = 1; doSearch();
+  } catch(e) {
+    $('importMsg').innerHTML = '<span class="err">Import failed: ' + esc(e.message) + '</span>';
+  }
+  $('uploadBtn').disabled = false;
+});
+
+$('uploadLogBtn').addEventListener('click', async () => {
+  const files = $('logFiles').files;
+  if (!files.length) { $('importLogMsg').innerHTML = '<span class="err">Choose at least one .txt file first.</span>'; return; }
+  const fd = new FormData();
+  for (const f of files) fd.append('files', f);
+  $('uploadLogBtn').disabled = true;
+  $('importLogMsg').textContent = 'Importing ' + files.length + ' shipping log(s)…';
+  try {
+    const s = await api('/api/import-log', { method: 'POST', body: fd });
+    const lines = s.files.map(f =>
+      f.error ? `• ${f.name}: ${f.error}`
+      : `• ${f.name}: ${f.rows} rows → ${f.updated} date(s) updated, ${f.notFound} not in database`);
+    lines.push(`Total: ${s.totalRows} rows, ${s.updated} updated, ${s.notFound} not in database.`);
+    $('importLogMsg').innerHTML = '<span class="ok">' + esc(lines.join('\n')) + '</span>';
+    $('logFiles').value = '';
+    state.page = 1; doSearch();
+  } catch(e) {
+    $('importLogMsg').innerHTML = '<span class="err">Import failed: ' + esc(e.message) + '</span>';
+  }
+  $('uploadLogBtn').disabled = false;
+});
+
+loadMeta();
+doSearch();
+</script>
+</body>
+</html>
