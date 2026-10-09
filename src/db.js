@@ -181,6 +181,7 @@ async function search({ q, service, period, page = 1, pageSize = 50 }) {
     `SELECT id, tracking_number, customer_code, contact_name, company_name,
        city, state, country, service_type, packages, weight_lbs,
        customs_value, customs_currency, invoice_number, raw_reference,
+       payment_type, duties_taxes,
        report_start, report_end,
        to_char(ship_date, 'YYYY-MM-DD HH24:MI') AS ship_date
      FROM shipments ${listWhere}
