@@ -76,6 +76,8 @@
   .btn-ghost:hover { border-color:var(--accent); color:var(--accent); }
   .btn-chip { background:#eef2f7; border:1px solid transparent; border-radius:20px; padding:8px 15px; font-size:13px; font-weight:600; color:#3b4a63; cursor:pointer; }
   .btn-chip:hover { border-color:var(--accent); color:var(--accent); }
+  .warn-chip.active { background:var(--warn-bg); border-color:#e8a13d; color:var(--warn-ink); }
+  .warn-flag { color:#c77e0a; font-size:13px; margin-right:2px; }
   th[data-sort] { cursor:pointer; user-select:none; }
   th[data-sort]:hover { color:var(--ink); }
   .si { font-size:9px; margin-left:4px; color:var(--accent); }
@@ -112,6 +114,7 @@
       <select id="country"><option value="">All countries</option></select>
     </div>
     <div class="search-row" style="margin-top:10px; align-items:center;">
+      <button id="needsReview" class="btn-chip warn-chip" type="button" title="International shipments where Duties &amp; taxes is not Recipient">⚠ Needs review <span id="needsReviewCount"></span></button>
       <label class="date-label">Ship date
         <input type="date" id="dateFrom" aria-label="Ship date from">
       </label>
@@ -175,7 +178,7 @@
 
 <script>
 const $ = id => document.getElementById(id);
-const state = { q:'', service:'', period:'', country:'', dateFrom:'', dateTo:'', sort:'', dir:'', type:'', page:1, total:0, pageSize:50 };
+const state = { q:'', service:'', period:'', country:'', dateFrom:'', dateTo:'', sort:'', dir:'', type:'', needsReview:false, page:1, total:0, pageSize:50 };
 let searchTimer = null;
 
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -191,6 +194,17 @@ function payPill(v) {
   if (!v) return '—';
   const warn = /recipient|third/i.test(v) ? ' warn' : '';
   return `<span class="pill${warn}">${esc(v)}</span>`;
+}
+function isIntl(r) {
+  return r.country && r.country !== 'Canada' && r.country !== 'United States';
+}
+function needsReviewRow(r) {
+  return isIntl(r) && (r.duties_taxes || '') !== 'Recipient';
+}
+function dutiesCell(r) {
+  const flag = needsReviewRow(r)
+    ? '<span class="warn-flag" title="International shipment — Duties & taxes should be Recipient">⚠</span>' : '';
+  return flag + payPill(r.duties_taxes);
 }
 
 const SVG_COPY = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 5.5v-2a1.5 1.5 0 0 0-1.5-1.5H4.5A1.5 1.5 0 0 0 3 3.5v4.5a1.5 1.5 0 0 0 1.5 1.5h1"/></svg>';
@@ -246,6 +260,9 @@ async function loadMeta() {
   try {
     const s = await api('/api/stats');
     $('stats').textContent = s.shipments.toLocaleString() + ' shipments stored';
+    const n = s.needsReview || 0;
+    $('needsReviewCount').textContent = n > 0 ? `(${n})` : '';
+    $('needsReview').style.display = n > 0 ? '' : 'none';
   } catch(e) { $('stats').textContent = ''; }
   try {
     const periods = await api('/api/periods');
@@ -265,6 +282,7 @@ async function doSearch() {
     q: state.q, service: state.service, period: state.period, country: state.country,
     dateFrom: state.dateFrom, dateTo: state.dateTo, sort: state.sort, dir: state.dir,
     type: state.type,
+    needsReview: state.needsReview ? '1' : '',
     page: state.page, pageSize: state.pageSize,
   });
   let res;
@@ -285,7 +303,7 @@ async function doSearch() {
       '<td class="mono nowrap">' + esc(r.invoice_number || '—') + (r.invoice_number ? copyBtn(r.invoice_number, 'invoice number') : '') + '</td>' +
       '<td class="mono nowrap">' + esc(fmtShip(r.ship_date)) + '</td>' +
       '<td>' + payPill(r.payment_type) + '</td>' +
-      '<td>' + payPill(r.duties_taxes) + '</td>';
+      '<td>' + dutiesCell(r) + '</td>';
     tb.appendChild(tr);
   }
   const pages = Math.max(1, Math.ceil(res.total / res.pageSize));
@@ -322,6 +340,11 @@ $('service').addEventListener('change', e => { state.service = e.target.value; s
 $('period').addEventListener('change', e => { state.period = e.target.value; state.page = 1; doSearch(); });
 $('country').addEventListener('change', e => { state.country = e.target.value; state.page = 1; doSearch(); });
 $('shipmentType').addEventListener('change', e => { state.type = e.target.value; state.page = 1; doSearch(); });
+$('needsReview').addEventListener('click', () => {
+  state.needsReview = !state.needsReview;
+  $('needsReview').classList.toggle('active', state.needsReview);
+  state.page = 1; doSearch();
+});
 $('dateFrom').addEventListener('change', e => { state.dateFrom = e.target.value; state.page = 1; doSearch(); });
 $('dateTo').addEventListener('change', e => { state.dateTo = e.target.value; state.page = 1; doSearch(); });
 function fmtDate(d) {
@@ -345,10 +368,10 @@ $('quickWeek').addEventListener('click', () => {
   setDateRange(fmtDate(monday), fmtDate(sunday));
 });
 $('clearFilters').addEventListener('click', () => {
-  Object.assign(state, { q:'', service:'', period:'', country:'', dateFrom:'', dateTo:'', sort:'', dir:'', type:'', page:1 });
+  Object.assign(state, { q:'', service:'', period:'', country:'', dateFrom:'', dateTo:'', sort:'', dir:'', type:'', needsReview:false, page:1 });
   $('q').value = ''; $('service').value = ''; $('period').value = '';
   $('country').value = ''; $('dateFrom').value = ''; $('dateTo').value = '';
-  $('shipmentType').value = '';
+  $('shipmentType').value = ''; $('needsReview').classList.remove('active');
   doSearch();
 });
 document.querySelectorAll('th[data-sort]').forEach(th => {
@@ -390,7 +413,7 @@ $('rows').addEventListener('click', async e => {
     section('Billing', [
       ['Invoice #', d.invoice_number ? esc(d.invoice_number) + copyBtn(d.invoice_number, 'invoice number') : '—'],
       ['Payment', payPill(d.payment_type)],
-      ['Duties & taxes', payPill(d.duties_taxes)],
+      ['Duties & taxes', dutiesCell(d)],
       ['Customs value', d.customs_value != null ? esc(d.customs_currency + ' ' + Number(d.customs_value).toLocaleString()) : '—'],
     ]) +
     section('Source', [
