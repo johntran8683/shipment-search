@@ -77,6 +77,10 @@
   th[data-sort] { cursor:pointer; user-select:none; }
   th[data-sort]:hover { color:var(--ink); }
   .si { font-size:9px; margin-left:4px; color:var(--accent); }
+  .copy-btn { border:none; background:none; cursor:pointer; padding:3px 5px; margin-left:2px; color:var(--faint); vertical-align:middle; border-radius:5px; line-height:0; }
+  .copy-btn:hover { color:var(--accent); background:#e8effe; }
+  .copy-btn svg { width:13px; height:13px; display:block; }
+  .copy-btn.copied { color:#15803d; }
   #importMsg, #importLogMsg { font-size:13px; margin-top:8px; white-space:pre-wrap; line-height:1.6; }
   .ok { color:#15803d; } .err { color:#b91c1c; }
   @media (max-width:900px){
@@ -180,6 +184,33 @@ function payPill(v) {
   return `<span class="pill${warn}">${esc(v)}</span>`;
 }
 
+const SVG_COPY = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 5.5v-2a1.5 1.5 0 0 0-1.5-1.5H4.5A1.5 1.5 0 0 0 3 3.5v4.5a1.5 1.5 0 0 0 1.5 1.5h1"/></svg>';
+const SVG_CHECK = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 8.5l3.5 3.5L13 4.5"/></svg>';
+function copyBtn(text, label) {
+  return `<button type="button" class="copy-btn" data-copy="${esc(text)}" title="Copy ${esc(label)}" aria-label="Copy ${esc(label)}">${SVG_COPY}</button>`;
+}
+async function doCopy(btn) {
+  const text = btn.dataset.copy || '';
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch (e) {
+    const ta = document.createElement('textarea');
+    ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta); ta.select();
+    try { document.execCommand('copy'); } catch (_e) {}
+    ta.remove();
+  }
+  const orig = btn.innerHTML;
+  btn.innerHTML = SVG_CHECK;
+  btn.classList.add('copied');
+  setTimeout(() => { btn.innerHTML = orig; btn.classList.remove('copied'); }, 1200);
+}
+// Capture phase so a copy click never also opens the row's detail modal.
+document.addEventListener('click', e => {
+  const btn = e.target.closest('.copy-btn');
+  if (btn) { e.stopPropagation(); e.preventDefault(); doCopy(btn); }
+}, true);
+
 async function api(url, opts) {
   const r = await fetch(url, opts);
   const j = await r.json();
@@ -238,10 +269,10 @@ async function doSearch() {
     const cust = '<span class="strong">' + esc(r.customer_code || '—') + '</span>' +
       (r.company_name ? '<div class="sub2">' + esc(r.company_name) + '</div>' : '');
     tr.innerHTML =
-      '<td class="mono strong nowrap">' + esc(r.tracking_number) + '</td>' +
+      '<td class="mono nowrap"><span class="strong">' + esc(r.tracking_number) + '</span>' + copyBtn(r.tracking_number, 'tracking number') + '</td>' +
       '<td>' + cust + '</td>' +
       '<td>' + esc(r.country || '—') + '</td>' +
-      '<td class="mono">' + esc(r.invoice_number || '—') + '</td>' +
+      '<td class="mono nowrap">' + esc(r.invoice_number || '—') + (r.invoice_number ? copyBtn(r.invoice_number, 'invoice number') : '') + '</td>' +
       '<td class="mono nowrap">' + esc(fmtShip(r.ship_date)) + '</td>' +
       '<td>' + payPill(r.payment_type) + '</td>' +
       '<td>' + payPill(r.duties_taxes) + '</td>';
@@ -308,7 +339,8 @@ $('rows').addEventListener('click', async e => {
   catch(err) { return; }
   const addr = [d.address_line1, d.address_line2].filter(Boolean).join(', ');
   const city = [d.city, d.state, d.postal_code].filter(Boolean).join(', ');
-  $('detailTrack').textContent = d.tracking_number || '';
+  $('detailTrack').innerHTML = esc(d.tracking_number || '') +
+    (d.tracking_number ? copyBtn(d.tracking_number, 'tracking number') : '');
   $('detailBody').innerHTML =
     section('Shipment', [
       ['Ship date', esc(fmtShip(d.ship_date))],
@@ -324,7 +356,7 @@ $('rows').addEventListener('click', async e => {
       ['Address', [addr, city].filter(Boolean).join(', ') || '—'],
     ]) +
     section('Billing', [
-      ['Invoice #', dash(d.invoice_number)],
+      ['Invoice #', d.invoice_number ? esc(d.invoice_number) + copyBtn(d.invoice_number, 'invoice number') : '—'],
       ['Payment', payPill(d.payment_type)],
       ['Duties & taxes', payPill(d.duties_taxes)],
       ['Customs value', d.customs_value != null ? esc(d.customs_currency + ' ' + Number(d.customs_value).toLocaleString()) : '—'],
